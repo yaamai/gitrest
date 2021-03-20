@@ -3,21 +3,55 @@ package main
 import (
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
+	"sync"
 
 	"github.com/go-git/go-billy/v5/memfs"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
 )
+
+const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+const (
+	letterIdxBits = 6                    // 6 bits to represent a letter index
+	letterIdxMask = 1<<letterIdxBits - 1 // All 1-bits, as many as letterIdxBits
+	letterIdxMax  = 63 / letterIdxBits   // # of letter indices fitting in 63 bits
+)
+
+// RandStringBytesMaskImpr generates random string
+func RandStringBytesMaskImpr(n int) string {
+	b := make([]byte, n)
+	// A rand.Int63() generates 63 random bits, enough for letterIdxMax letters!
+	for i, cache, remain := n-1, rand.Int63(), letterIdxMax; i >= 0; {
+		if remain == 0 {
+			cache, remain = rand.Int63(), letterIdxMax
+		}
+		if idx := int(cache & letterIdxMask); idx < len(letterBytes) {
+			b[i] = letterBytes[idx]
+			i--
+		}
+		cache >>= letterIdxBits
+		remain--
+	}
+
+	return string(b)
+}
 
 func initServer(repo *git.Repository) {
 	worktree, err := repo.Worktree()
 	if err != nil {
 		log.Fatalln(err)
 	}
+
+	notifyMap := map[string]map[string]*websocket.Conn{}
+	upgrader := websocket.Upgrader{}
+	notifyMutex := sync.Mutex{}
+	mapMutex := sync.Mutex{}
 
 	r := mux.NewRouter()
 
@@ -27,6 +61,9 @@ func initServer(repo *git.Repository) {
 			http.NotFound(w, r)
 			return
 		}
+
+		ref, err := repo.Head()
+		w.Header().Add("X-Commit", ref.Hash().String())
 		io.Copy(w, f)
 	}).Methods("GET")
 
@@ -39,11 +76,31 @@ func initServer(repo *git.Repository) {
 		}
 		io.Copy(f, r.Body)
 
-		worktree.AddWithOptions(&git.AddOptions{Path: p})
+		err = worktree.AddWithOptions(&git.AddOptions{Path: p})
+		if err != nil {
+			log.Fatalln(err)
+		}
 		_, err = worktree.Commit("test", &git.CommitOptions{})
 		if err != nil {
 			log.Fatalln(err)
 		}
+		ref, err := repo.Head()
+		w.Header().Add("X-Commit", ref.Hash().String())
+
+		notifyID := r.Header.Get("X-Notify-Id")
+
+		go func() {
+			if notifyTo, ok := notifyMap[p]; ok {
+				notifyMutex.Lock()
+				defer notifyMutex.Unlock()
+				for id, ws := range notifyTo {
+					if id == notifyID {
+						continue
+					}
+					ws.WriteJSON(map[string]string{"type": "update", "id": ref.Hash().String()})
+				}
+			}
+		}()
 	}).Methods("POST")
 
 	r.HandleFunc("/commits/{path}", func(w http.ResponseWriter, r *http.Request) {
@@ -53,6 +110,28 @@ func initServer(repo *git.Repository) {
 			log.Println(c.Hash)
 			return nil
 		})
+	})
+
+	r.HandleFunc("/notifies/{path}", func(w http.ResponseWriter, r *http.Request) {
+		p := mux.Vars(r)["path"]
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		id := RandStringBytesMaskImpr(6)
+		ws.WriteJSON(map[string]string{"type": "id", "id": id})
+		mapMutex.Lock()
+		if _, ok := notifyMap[p]; !ok {
+			notifyMap[p] = map[string]*websocket.Conn{}
+		}
+		if _, ok := notifyMap[p][id]; !ok {
+			notifyMap[p][id] = ws
+		}
+		mapMutex.Unlock()
+
+		log.Println("notify registered")
+		for {
+		}
 	})
 
 	wd, _ := os.Getwd()
