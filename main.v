@@ -1,59 +1,139 @@
+import time
 
 
 
-struct Item {
+fn new_id(site u32, cnt u32) u64 {
+	return u64(site) << 32 | u64(cnt)
+}
+
+// ok(idk, origink, leftk, rightk, isDeletedk, contentk)
+struct Op {
 	id u64
-}
-
-struct List {
+	origin u64
 mut:
-	data []Item
+	left &Op
+	right &Op
+	deleted bool
+	content int
 }
 
-fn new_list() List {
-	return List{}
+// We represent linear data as a doubly linked list S of insertions
+struct OpSet {
+	left &Op
+	right &Op
 }
 
-fn (l List) at(pos int) Item {
-	return l.data[pos]
-}
+fn new_opset() OpSet {
+	// delimiter
+	mut left := &Op{id: new_id(0, 0), origin: 0, left: 0, right: 0, deleted: false, content: 0}
+	mut right := &Op{id: new_id(0, 1), origin: 0, left: 0, right: 0, deleted: false, content: 0}
+	left.right = right
+	right.left = left
+	// println(left)
+	// println(right)
 
-fn concat(a []Item, b []Item, c []Item) []Item {
-	mut r := []Item{len: a.len + b.len + c.len}
-	mut idx := 0
-	for i in a {
-		r[idx] = i
-		idx++
+	return OpSet{
+		left: left,
+		right: right
 	}
-	for i in b {
-		r[idx] = i
-		idx++
-	}
-	for i in c {
-		r[idx] = i
-		idx++
-	}
-	return r
 }
 
-fn (mut l List) insert(pos int, item Item) {
-	l.data = concat(l.data[..pos], [item], l.data[pos..])
+interface OpIterator {
+	next(&Op) bool
+}
+interface OpMutIterator {
+	next(mut op &Op) bool
+}
+fn (s OpSet) each(iter OpIterator) {
+	// loop left delimiter to right delimiter
+	mut n := s.left.right
+	for ; n != 0 && n.right != 0; n = n.right {
+		if iter.next(n) {
+			break
+		}
+	}
+}
+fn (s OpSet) each_all(iter OpMutIterator) {
+	// loop left delimiter to right delimiter
+	mut n := s.left
+	for ; n != 0 && n.right != 0; n = n.right {
+		if iter.next(mut n) {
+			break
+		}
+	}
+}
+
+// FIXME: use functor due to vlang's lambda can't capture variables
+struct OpStringer {
+mut:
+	s string
+}
+fn (mut s OpStringer) next(op &Op) bool {
+	s.s = s.s + op.content.str()
+	return false
+}
+fn (s OpSet) str() string {
+	ostr := OpStringer{}
+	s.each(ostr)
+	return ostr.s
+}
+
+// FIXME: use functor due to vlang's lambda can't capture variables
+struct OpAt {
+mut:
+	target int
+	result &Op = 0
+	pos int
+}
+fn (mut a OpAt) next(op &Op) bool {
+	if a.pos == a.target {
+		a.result = op
+		return true
+	}
+	a.pos++
+	return false
+}
+fn (s OpSet) at(pos int) ?&Op {
+	at := OpAt{target: pos}
+	s.each(at)
+	if at.result == 0 {
+		return error('not found')
+	}
+	return at.result
+}
+
+// FIXME: use functor due to vlang's lambda can't capture variables
+struct OpAdd {
+mut:
+	target int
+	content int
+	id u64
+	pos int
+}
+fn (mut a OpAdd) next(mut op &Op) bool {
+	if a.pos == a.target {
+		new_op := &Op{id: a.id, origin: op.id, left: op, right: op.right, deleted: false, content: a.content}
+		op.right.left = new_op
+		op.right = new_op
+		return true
+	}
+	a.pos++
+	return false
+}
+fn (mut s OpSet) add(pos int, content int) {
+	add := OpAdd{target: pos, content: content, id: new_id(1, u32(time.now().unix_time()))}
+	s.each_all(add)
 }
 
 fn main() {
-	mut l := new_list()
-
-	l.insert(0, Item{id: 100})
-	assert l.at(0).id == 100
-	println("---")
-
-	l.insert(0, Item{id: 101})
-	assert l.at(0).id == 101
-	assert l.at(1).id == 100
-	println("---")
-
-	l.insert(1, Item{id: 102})
-	assert l.at(0).id == 101
-	assert l.at(1).id == 102
-	assert l.at(2).id == 100
+	mut s := new_opset()
+	println("empty: ${s}")
+	s.add(0, 1)
+	println("add: ${s}")
+	s.add(0, 2)
+	println("add: ${s}")
+	s.add(1, 3)
+	println("add: ${s}")
+	at0 := s.at(0) or { panic("position 0 not found") }
+	println("at 0: ${at0}")
 }
