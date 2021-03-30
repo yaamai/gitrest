@@ -20,6 +20,7 @@ mut:
 struct OpSet {
 	left u64
 	right u64
+mut:
 	data map[u64]&Op
 }
 
@@ -29,8 +30,6 @@ fn new_opset() OpSet {
 	mut right := &Op{id: new_id(0, 2), origin: 0, left: 0, right: 0, deleted: false, content: 0}
 	left.right = right.id
 	right.left = left.id
-	// println(left)
-	// println(right)
 
 	mut data := map[u64]&Op{}
 	data[left.id] = left
@@ -42,123 +41,172 @@ fn new_opset() OpSet {
 	}
 }
 
-interface OpIterator {
-	next(&Op) bool
-}
-interface OpMutIterator {
-	next(mut op &Op) bool
-}
-fn (s OpSet) each(iter OpIterator) {
+fn (s &OpSet) next() ?&Op {
 	// loop left delimiter to right delimiter
 	mut n := s.data[s.data[s.left].right]
 	for ; n != 0 && n.right != 0; n = s.data[n.right] {
-		if iter.next(n) {
-			break
-		}
+		return n
 	}
-}
-fn (s OpSet) each_all(iter OpMutIterator) {
-	// loop left delimiter to right delimiter
-	mut n := s.data[s.left]
-	for ; n != 0 && n.right != 0; n = s.data[n.right] {
-		if iter.next(mut n) {
-			break
-		}
-	}
+	return error("no more element")
 }
 
-// FIXME: use functor due to vlang's lambda can't capture variables
-struct OpStringer {
+fn (s &OpSet) iter() OpSetIter {
+	start := s.data[s.left].right
+	println(start)
+	return OpSetIter{s: s, start: start, end: s.right, cur: s.data[start]}
+}
+
+fn (s &OpSet) iter_range(start u64, end u64) OpSetIter {
+	return OpSetIter{s: s, start: start, end: end, cur: s.data[start]}
+}
+
+// iterate all Op includes delimiter
+fn (s &OpSet) iter_all() OpSetIter {
+	println("b")
+	return OpSetIter{s: s, start: s.left, end: -1, cur: s.data[s.left]}
+}
+
+struct OpSetIter {
+	s &OpSet
+	start u64
+	end u64
 mut:
-	s string
+	cur &Op = 0
 }
-fn (mut s OpStringer) next(op &Op) bool {
-	s.s = s.s + op.content.str()
-	return false
+
+fn (mut iter OpSetIter) next() ?&Op {
+	// println("iter: ${iter}")
+	for ; iter.cur != 0 && iter.cur.id != iter.end; {
+		ret := iter.cur
+		iter.cur = iter.s.data[iter.cur.right]
+		return ret
+	}
+	return error("no more element")
 }
+
+fn (mut iter OpSetIter) as_arr() []&Op {
+	mut result := []&Op{}
+	for op in iter {
+		result << op
+	}
+	return result
+}
+
+// to fix infinit recursion at &OpSet.str()
+fn (iter OpSetIter) str() string {
+	return "OpSetIter{cur: ${iter.cur.id}, start: ${iter.start}, end:${iter.end}}"
+}
+
 fn (s OpSet) str() string {
-	ostr := OpStringer{}
-	s.each(ostr)
-	return ostr.s
+	iter := s.iter()
+	println("str(): ${iter}")
+	mut str := ""
+	for op in iter {
+		str = str + op.content.str()
+	}
+	return str
 }
 
-// FIXME: use functor due to vlang's lambda can't capture variables
-struct OpAt {
-mut:
-	target int
-	result &Op = 0
-	pos int
-}
-fn (mut a OpAt) next(op &Op) bool {
-	if a.pos == a.target {
-		a.result = op
-		return true
+fn (s &OpSet) dump() {
+	// in 0.2.2 can't write `idx, op in s.iter_all()`
+	iter := s.iter_all()
+	//println("c")
+	//println(iter)
+	//println("d")
+	println("=== dump ===")
+	for op in iter {
+		println(op)
 	}
-	a.pos++
-	return false
+	println("===")
 }
+
 fn (s OpSet) at(pos int) ?&Op {
-	at := OpAt{target: pos}
-	s.each(at)
-	if at.result == 0 {
-		return error('not found')
+	mut cnt := 0
+	for op in s {
+		if cnt == pos {
+			return op
+		}
+		cnt++
 	}
-	return at.result
+	return error('not found')
 }
 
-// FIXME: use functor due to vlang's lambda can't capture variables
-struct OpAdd {
-mut:
-	target int
-	op &Op
-	content int
-	id u64
-	pos int
-}
-fn (mut a OpAdd) next(mut op &Op) bool {
-	if a.pos == a.target {
-		a.op = &Op{
-			...(*a.op)
-			origin: op.id,
-			left: op.id,
-			right: op.right
+fn (s OpSet) gen_insert_op(pos int, content int) ?&Op {
+	// in 0.2.2 can't write `idx, op in s.iter_all()`
+	mut idx := 0
+	iter := s.iter_all()
+	for op in iter {
+		if idx == pos {
+			// return heap allocated Op (&)
+			return &Op{
+				content: content,
+				id: new_id(1, u32(time.now().unix_time())),
+				origin: op.id,
+				left: op.id
+				right: op.right
+			}
 		}
-		return true
+		idx++
 	}
-	a.pos++
-	return false
-}
-fn (s OpSet) gen_insert_op(pos int, content int) &Op {
-	add := OpAdd{target: pos, op: &Op{content: content, id: new_id(1, u32(time.now().unix_time()))}}
-	s.each_all(add)
-	return add.op
+	return error('invalid pos')
 }
 
 fn (mut s OpSet) insert(pos int, content int) {
-	op := s.gen_insert_op(pos, content)
+	op := s.gen_insert_op(pos, content) or { return }
 	s.integrate(op)
 }
 
 fn (mut s OpSet) integrate(op &Op) {
+	println("integrate")
+	mut conflicts := []Op{}
+	iter := s.iter_range(op.left, op.right)
+	for elem in iter {
+		conflicts << elem
+	}
+	println("conflicts: ${conflicts}")
+
+	// serach insert position
+	mut left := op.left
+	mut right := op.right
+	for c in conflicts {
+	}
+	println("integrate to left:${left} right:${right}")
+
+	s.data[op.id] = op
+	s.data[left].right = op.id
+	s.data[right].left = op.id
+	println(s.data[left])
+	println(s.data[right])
+	println(s.data[op.id])
 }
 
+fn test_iter() {
+	s := new_opset()
+	{
+		mut iter := s.iter()
+		assert iter.as_arr() == []
+	}
 
-struct ItTest {}
-
-fn (t &ItTest) next() ?int {
-	return 0
+	{
+		mut iter := s.iter_all()
+		left_delim := &Op{id: 1, origin: 0, left: 0, right: 2, deleted: false, content: 0}
+		right_delim := &Op{id: 2, origin: 0, left: 1, right: 0, deleted: false, content: 0}
+		assert iter.as_arr().len == 2
+	}
 }
 
 fn main() {
-
-	iter := ItTest{}
-	for i in iter {
-		println(i)
-	}
-
-
+	test_iter()
 
 	mut s := new_opset()
+	s.dump()
+	s.insert(0, 1)
+	s.dump()
+	println("insert: ${s}")
+
+/*
+
+
 	println("empty: ${s}")
 	s.insert(0, 1)
 	println("add: ${s}")
@@ -168,4 +216,5 @@ fn main() {
 	println("add: ${s}")
 	at0 := s.at(0) or { panic("position 0 not found") }
 	println("at 0: ${at0}")
+*/
 }
