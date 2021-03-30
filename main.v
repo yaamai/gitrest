@@ -131,7 +131,7 @@ fn (s OpSet) at(pos int) ?&Op {
 	return error('not found')
 }
 
-fn (s OpSet) gen_insert_op(pos int, content int) ?&Op {
+fn (s OpSet) gen_insert_op(pos int, content int, id u64) ?&Op {
 	// in 0.2.2 can't write `idx, op in s.iter_all()`
 	mut idx := 0
 	iter := s.iter_all()
@@ -140,7 +140,7 @@ fn (s OpSet) gen_insert_op(pos int, content int) ?&Op {
 			// return heap allocated Op (&)
 			return &Op{
 				content: content,
-				id: new_id(1, u32(time.now().unix_time())),
+				id: id,
 				origin: op.id,
 				left: op.id
 				right: op.right
@@ -151,8 +151,8 @@ fn (s OpSet) gen_insert_op(pos int, content int) ?&Op {
 	return error('invalid pos')
 }
 
-fn (mut s OpSet) insert(pos int, content int) {
-	op := s.gen_insert_op(pos, content) or { return }
+fn (mut s OpSet) insert(pos int, content int, id u64) {
+	op := s.gen_insert_op(pos, content, id) or { return }
 	s.integrate(op)
 }
 
@@ -197,10 +197,13 @@ fn test_iter() {
 
 fn main() {
 	test_iter()
+	mut id := new_id(1, u32(time.now().unix_time()))
 
 	mut s := new_opset()
 	s.dump()
-	s.insert(0, 1)
+	s.insert(0, 1, id++)
+	s.insert(0, 2, id++)
+	s.insert(0, 3, id++)
 	s.dump()
 	println("insert: ${s}")
 
