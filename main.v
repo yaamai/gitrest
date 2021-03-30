@@ -52,7 +52,6 @@ fn (s &OpSet) next() ?&Op {
 
 fn (s &OpSet) iter() OpSetIter {
 	start := s.data[s.left].right
-	println(start)
 	return OpSetIter{s: s, start: start, end: s.right, cur: s.data[start]}
 }
 
@@ -62,7 +61,6 @@ fn (s &OpSet) iter_range(start u64, end u64) OpSetIter {
 
 // iterate all Op includes delimiter
 fn (s &OpSet) iter_all() OpSetIter {
-	println("b")
 	return OpSetIter{s: s, start: s.left, end: -1, cur: s.data[s.left]}
 }
 
@@ -131,6 +129,18 @@ fn (s OpSet) at(pos int) ?&Op {
 	return error('not found')
 }
 
+fn (s OpSet) pos(id u64) int {
+	iter := s.iter_all()
+	mut cnt := 0
+	for op in iter {
+		if op.id == id {
+			return cnt
+		}
+		cnt++
+	}
+	return cnt
+}
+
 fn (s OpSet) gen_insert_op(pos int, content int, id u64) ?&Op {
 	// in 0.2.2 can't write `idx, op in s.iter_all()`
 	mut idx := 0
@@ -159,7 +169,7 @@ fn (mut s OpSet) insert(pos int, content int, id u64) {
 fn (mut s OpSet) integrate(op &Op) {
 	println("integrate")
 	mut conflicts := []Op{}
-	iter := s.iter_range(op.left, op.right)
+	iter := s.iter_range(s.data[op.left].right, op.right)
 	for elem in iter {
 		conflicts << elem
 	}
@@ -168,11 +178,35 @@ fn (mut s OpSet) integrate(op &Op) {
 	// serach insert position
 	mut left := op.left
 	mut right := op.right
-	for c in conflicts {
+	if conflicts.len > 0 {
+		left = conflicts[0].left
+		right = conflicts[0].id
+		println("left: ${left}, right: ${right}")
 	}
-	println("integrate to left:${left} right:${right}")
+	i_origin_pos := s.pos(op.origin)
+	for o in conflicts {
+		o_pos := s.pos(o.id)
+		o_origin_pos := s.pos(o.origin)
+
+		// check origin reference does NOT crossing (rule1)
+		println("pos: ${i_origin_pos}, ${o_pos}, ${o_origin_pos}")
+		if (o_pos < i_origin_pos) || (i_origin_pos <= o_origin_pos) {
+			// if difference origin, insert to right-most place
+			// otherwise (same origin), smaller unique-id is left (rule3)
+			if (o_origin_pos != i_origin_pos) || (op.id > o.id) {
+				println("found: ${o}, ${op}")
+				left = o.id
+				right = o.right
+			}
+		} else {
+			break
+		}
+	}
+	println("integrate ${op} to left:${left} right:${right}")
 
 	s.data[op.id] = op
+	s.data[op.id].left = left
+	s.data[op.id].right = right
 	s.data[left].right = op.id
 	s.data[right].left = op.id
 	println(s.data[left])
@@ -201,9 +235,15 @@ fn main() {
 
 	mut s := new_opset()
 	s.dump()
-	s.insert(0, 1, id++)
-	s.insert(0, 2, id++)
-	s.insert(0, 3, id++)
+	r1 := s.gen_insert_op(0, 1, id++) or { panic(err) }
+	r2 := s.gen_insert_op(0, 2, id++) or { panic(err) }
+	r3 := s.gen_insert_op(0, 3, id++) or { panic(err) }
+	//s.insert(0, 2, id++)
+	//s.insert(0, 3, id++)
+	s.dump()
+	s.integrate(r1)
+	s.integrate(r3)
+	s.integrate(r2)
 	s.dump()
 	println("insert: ${s}")
 
