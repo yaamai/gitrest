@@ -105,7 +105,7 @@ fn (s OpSet) str() string {
 	return str
 }
 
-fn (s &OpSet) dump() {
+fn (s &OpSet) dump2() {
 	// in 0.2.2 can't write `idx, op in s.iter_all()`
 	iter := s.iter_all()
 	//println("c")
@@ -234,17 +234,17 @@ fn main() {
 	mut id := new_id(1, u32(time.now().unix_time()))
 
 	mut s := new_opset()
-	s.dump()
+	s.dump2()
 	r1 := s.gen_insert_op(0, 1, id++) or { panic(err) }
 	r2 := s.gen_insert_op(0, 2, id++) or { panic(err) }
 	r3 := s.gen_insert_op(0, 3, id++) or { panic(err) }
 	//s.insert(0, 2, id++)
 	//s.insert(0, 3, id++)
-	s.dump()
+	s.dump2()
 	s.integrate(r1)
 	s.integrate(r3)
 	s.integrate(r2)
-	s.dump()
+	s.dump2()
 	println("insert: ${s}")
 
 /*
