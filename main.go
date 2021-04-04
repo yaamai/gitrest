@@ -97,7 +97,14 @@ func main() {
 
 	r := mux.NewRouter()
 	r.PathPrefix("/api").Handler(http.StripPrefix("/api", s.Router()))
-	r.PathPrefix("/static").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("."))))
+	r.PathPrefix("/static").Handler(http.StripPrefix("/static", http.FileServer(http.Dir("static"))))
+	r.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			http.ServeFile(w, r, "static/index.html")
+			return
+		}
+		http.NotFound(w, r)
+	}).Methods("GET")
 	http.ListenAndServe(":13223", r)
 }
 

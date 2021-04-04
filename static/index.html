@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+
+    <script src="static/codemirror-5.59.4/lib/codemirror.js"></script>
+    <script src="static/codemirror-5.59.4/mode/markdown/markdown.js"></script>
+    <script src="static/codemirror-5.59.4/keymap/vim.js"></script>
+    <link rel="stylesheet" href="static/codemirror-5.59.4/lib/codemirror.css">
+</head>
+<body>
+
+<script>
+const syncInterval = 1000;
+const path = "api/" + window.location.hash.substr(1);
+var lastSynced = Date.now();
+var syncPending = false;
+
+var cm = CodeMirror(document.body, {
+    mode: "markdown",
+    keyMap: "vim"
+});
+cm.on("changes", syncChanges);
+
+function syncChanges(cm, change) {
+    // prevent update by cm.setValue
+    if (change.length > 0 && change[0].origin == "setValue") { return; }
+
+    // rate-limit update request
+    if ((Date.now() - lastSynced) < syncInterval) {
+        if (!syncPending) {
+            setTimeout(() => syncChanges(cm, change), syncInterval);
+            syncPending = true;
+        }
+        return;
+    }
+
+    var r = new XMLHttpRequest();
+    r.open("POST", path);
+    r.send(cm.getValue());
+    lastSynced = Date.now();
+    syncPending = false;
+}
+
+function loadData() {
+    var r = new XMLHttpRequest();
+    r.open("GET", path);
+    r.addEventListener("loadend", (e) => {
+        cm.setValue(r.responseText);
+    })
+    r.send();
+}
+
+loadData();
+</script>
+
+</body>
+</html>
