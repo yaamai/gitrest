@@ -3,6 +3,108 @@ package main
 import (
 	"io"
 	"log"
+	"net/http"
+
+	"github.com/go-git/go-billy/v5/memfs"
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/storage/memory"
+	"github.com/gorilla/mux"
+)
+
+type GitRestServer struct {
+	repo     *git.Repository
+	worktree *git.Worktree
+}
+
+func NewGitRestServer(opts *git.CloneOptions) (*GitRestServer, error) {
+	fs := memfs.New()
+	stor := memory.NewStorage()
+	repo, err := git.Clone(stor, fs, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	worktree, err := repo.Worktree()
+	if err != nil {
+		return nil, err
+	}
+
+	return &GitRestServer{
+		repo:     repo,
+		worktree: worktree,
+	}, nil
+}
+
+func (s *GitRestServer) Sync() {
+	opts := &git.PushOptions{
+		RemoteName: "origin",
+	}
+	err := s.repo.Push(opts)
+	if err != nil {
+		log.Println(err)
+	}
+}
+
+func (s *GitRestServer) handleReadFile(w http.ResponseWriter, r *http.Request) {
+	p := mux.Vars(r)["path"]
+	f, err := s.worktree.Filesystem.Open(p)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	io.Copy(w, f)
+}
+
+func (s *GitRestServer) handleUpdateFile(w http.ResponseWriter, r *http.Request) {
+	p := mux.Vars(r)["path"]
+
+	f, err := s.worktree.Filesystem.Create(p)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	io.Copy(f, r.Body)
+
+	err = s.worktree.AddWithOptions(&git.AddOptions{Path: p})
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+	}
+
+	_, err = s.worktree.Commit("test", &git.CommitOptions{})
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+	}
+
+	go s.Sync()
+}
+
+func (s *GitRestServer) Router() *mux.Router {
+	r := mux.NewRouter()
+	r.HandleFunc("/{path}", s.handleReadFile).Methods("GET")
+	r.HandleFunc("/{path}", s.handleUpdateFile).Methods("POST", "PUT")
+	return r
+}
+
+func main() {
+	opts := &git.CloneOptions{
+		URL: "test",
+	}
+
+	s, err := NewGitRestServer(opts)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	r := mux.NewRouter()
+	r.PathPrefix("/api").Handler(http.StripPrefix("/api", s.Router()))
+	r.PathPrefix("/static").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("."))))
+	http.ListenAndServe(":13223", r)
+}
+
+/*
+import (
+	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"os"
@@ -151,7 +253,6 @@ func main() {
 
 	initServer(repo)
 
-	/*
 		log.Println("repo:", r)
 
 		w, err := r.Worktree()
@@ -234,5 +335,6 @@ func main() {
 		l, err = fr.Read(buf)
 		fmt.Println(l, err)
 		log.Println(string(buf[:l]))
-	*/
 }
+
+*/
