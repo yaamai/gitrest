@@ -4,7 +4,9 @@ import (
 	"io"
 	"log"
 	"net/http"
+    "time"
 
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-billy/v5/memfs"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/storage/memory"
@@ -70,7 +72,14 @@ func (s *GitRestServer) handleUpdateFile(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), 500)
 	}
 
-	_, err = s.worktree.Commit("test", &git.CommitOptions{})
+	opts := &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "John Doe",
+			Email: "john@doe.org",
+			When:  time.Now(),
+		},
+	}
+	_, err = s.worktree.Commit("test", opts)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 	}

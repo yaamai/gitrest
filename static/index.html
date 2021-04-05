@@ -9,6 +9,7 @@
     <script src="static/codemirror-5.59.4/keymap/vim.js"></script>
     <link rel="stylesheet" href="static/codemirror-5.59.4/lib/codemirror.css">
     <link rel="stylesheet" href="static/sakura.css" type="text/css">
+    <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css" />
 
     <style>
     body {
@@ -24,13 +25,22 @@
     </style>
 </head>
 <body>
-<textarea class="cm" id="cm"></textarea>
+<div id="editor"></div>
 
+<script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js"></script>
 <script>
 const syncInterval = 1000;
 const path = "api/" + window.location.hash.substr(1);
 var lastSynced = Date.now();
 var syncPending = false;
+
+const editor = new toastui.Editor({
+  el: document.querySelector('#editor'),
+  height: '500px',
+  initialEditType: 'markdown',
+  previewStyle: 'vertical',
+  usageStatistics: false
+});
 
 var cm = CodeMirror.fromTextArea(document.getElementById("cm"), {
     mode: "markdown",
