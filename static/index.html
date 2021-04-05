@@ -8,8 +8,23 @@
     <script src="static/codemirror-5.59.4/mode/markdown/markdown.js"></script>
     <script src="static/codemirror-5.59.4/keymap/vim.js"></script>
     <link rel="stylesheet" href="static/codemirror-5.59.4/lib/codemirror.css">
+    <link rel="stylesheet" href="static/sakura.css" type="text/css">
+
+    <style>
+    body {
+        max-width: 90%;
+        height: 100%;
+    }
+
+    .CodeMirror {
+        border: 1px solid #eee;
+        height: calc(100vh - 26px);
+        box-sizing: border-box;
+    }
+    </style>
 </head>
 <body>
+<textarea class="cm" id="cm"></textarea>
 
 <script>
 const syncInterval = 1000;
@@ -17,7 +32,7 @@ const path = "api/" + window.location.hash.substr(1);
 var lastSynced = Date.now();
 var syncPending = false;
 
-var cm = CodeMirror(document.body, {
+var cm = CodeMirror.fromTextArea(document.getElementById("cm"), {
     mode: "markdown",
     keyMap: "vim"
 });
@@ -54,6 +69,7 @@ function loadData() {
 
 loadData();
 </script>
+
 
 </body>
 </html>
